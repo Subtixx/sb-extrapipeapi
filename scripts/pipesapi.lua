@@ -12,7 +12,7 @@ function entityConnectsAt(pipeName, position, pipeDirection)
   local entityPos = entity.position()
   
   for i,node in ipairs(pipes.nodes[pipeName]) do
-    local absNodePos = entity.toAbsolutePosition(node.offset)
+    local absNodePos = object.toAbsolutePosition(node.offset)
     local distance = world.distance(position, absNodePos)
     if distance[1] == 0 and distance[2] == 0 and pipes.pipesConnect(node.dir, {pipeDirection}) then
       return i
@@ -82,7 +82,7 @@ function pipes.init(pipeTypes)
   end
   
   for pipeName,pipeType in pairs(pipes.types) do
-    pipes.nodes[pipeName] = entity.configParameter(pipeType.nodesConfigParameter)
+    pipes.nodes[pipeName] = config.getParameter(pipeType.nodesConfigParameter)
     pipes.nodeEntities[pipeName] = {}
   end
 
@@ -230,19 +230,17 @@ end
 -- @param dt number - delta time
 -- @returns nil
 function pipes.update(dt)
-  local position = entity.position()
-  pipes.updateTimer = pipes.updateTimer + dt
-  
-  if pipes.updateTimer >= pipes.updateInterval then
-  
-    --Get connected entities
-    for pipeName,pipeType in pairs(pipes.types) do
-      --Get inbound
-      pipes.nodeEntities[pipeName] = pipes.getNodeEntities(pipeName)
-    end
-    
-    pipes.updateTimer = 0
-  end
+   local position = entity.position()
+   pipes.updateTimer = pipes.updateTimer + dt
+
+   if pipes.updateTimer >= pipes.updateInterval then
+      --Get connected entities
+      for pipeName,pipeType in pairs(pipes.types) do
+         --Get inbound
+         pipes.nodeEntities[pipeName] = pipes.getNodeEntities(pipeName)
+      end
+      pipes.updateTimer = 0
+   end
 end
 
 --- Calls a hook on the entity to see if it connects to the specified pipe
@@ -252,7 +250,11 @@ end
 -- @param direction vec2 - direction of the pipe tile
 -- @returns nil
 function pipes.validEntity(pipeName, entityId, position, direction)
-  return world.callScriptedEntity(entityId, "entityConnectsAt", pipeName, position, direction)
+   if world.entityExists(entityId) and world.entityType(entityId) == "object" then
+      return world.callScriptedEntity(entityId, "entityConnectsAt", pipeName, position, direction)
+   else
+      return nil
+   end
 end
 
 --- Walks through placed pipe tiles to find connected entities
@@ -261,43 +263,43 @@ end
 -- @param startDir vec2 - Direction to start looking in, should be set to a node's direction
 -- @returns List of connected entities with ID, remote Node ID, and path info, sorted by nearest-first
 function pipes.walkPipes(pipeName, startOffset, startDir)
-  local validEntities = {}
-  local visitedTiles = {}
-  local tilesToVisit = {{pos = {startOffset[1] + startDir[1], startOffset[2] + startDir[2]}, layer = "foreground", dir = startDir, path = {}}}
-  local layerMode = nil
-  
-  while #tilesToVisit > 0 do
-    local tile = tilesToVisit[1]
-    local pipeDirections, layerMode = pipes.getPipeTileData(pipeName, entity.toAbsolutePosition(tile.pos), tile.layer, tile.dir)
-    
-    --If a tile, add connected spaces to the visit list
-    if pipeDirections then
-      tile.path[#tile.path+1] = tile.pos --Add tile to the path
-      visitedTiles[tile.pos[1].."."..tile.pos[2]] = true --Add to global visited
-      for _,dir in ipairs(pipeDirections) do
-        local newPos = {tile.pos[1] + dir[1], tile.pos[2] + dir[2]}
-        if not pipes.pipesConnect(dir, {tile.dir}) and visitedTiles[newPos[1].."."..newPos[2]] == nil then --Don't check the tile we just came from, and don't check already visited ones
-          local newTile = {pos = newPos, layer = layerMode, dir = dir, path = table.copy(tile.path)}
-          table.insert(tilesToVisit, 2, newTile)
-        end
-      end
-    --If not a tile, check for objects that might connect
-    elseif not pipeDirections then
-      --local connectedObjects = world.objectQuery(entity.toAbsolutePosition(tile.pos), 2)
-      local absTilePos = entity.toAbsolutePosition(tile.pos)
-      local connectedObjects = world.entityLineQuery(absTilePos, {absTilePos[1] + 1, absTilePos[2] + 2})
-      if connectedObjects then
-        for key,objectId in ipairs(connectedObjects) do
-          local entNode = pipes.validEntity(pipeName, objectId, entity.toAbsolutePosition(tile.pos), tile.dir)
-          if objectId ~= entity.id() and entNode and table.contains(validEntities, objectId) == false then
-            validEntities[#validEntities+1] = {id = objectId, nodeId = entNode, path = table.copy(tile.path)}
-          end
-        end
-      end
-    end
-    table.remove(tilesToVisit, 1)
-  end
+   local validEntities = {}
+   local visitedTiles = {}
+   local tilesToVisit = {{pos = {startOffset[1] + startDir[1], startOffset[2] + startDir[2]}, layer = "foreground", dir = startDir, path = {}}}
+   local layerMode = nil
 
-  table.sort(validEntities, function(a,b) return #a.path < #b.path end)
-  return validEntities
+   while #tilesToVisit > 0 do
+      local tile = tilesToVisit[1]
+      local pipeDirections, layerMode = pipes.getPipeTileData(pipeName, object.toAbsolutePosition(tile.pos), tile.layer, tile.dir)
+
+      --If a tile, add connected spaces to the visit list
+      if pipeDirections then
+         tile.path[#tile.path+1] = tile.pos --Add tile to the path
+         visitedTiles[tile.pos[1].."."..tile.pos[2]] = true --Add to global visited
+         for _,dir in ipairs(pipeDirections) do
+            local newPos = {tile.pos[1] + dir[1], tile.pos[2] + dir[2]}
+            if not pipes.pipesConnect(dir, {tile.dir}) and visitedTiles[newPos[1].."."..newPos[2]] == nil then --Don't check the tile we just came from, and don't check already visited ones
+               local newTile = {pos = newPos, layer = layerMode, dir = dir, path = table.copy(tile.path)}
+               table.insert(tilesToVisit, 2, newTile)
+            end
+         end
+         --If not a tile, check for objects that might connect
+      elseif not pipeDirections then
+         --local connectedObjects = world.objectQuery(object.toAbsolutePosition(tile.pos), 2)
+         local absTilePos = object.toAbsolutePosition(tile.pos)
+         local connectedObjects = world.entityLineQuery(absTilePos, {absTilePos[1] + 1, absTilePos[2] + 2})
+         if connectedObjects then
+            for key,objectId in ipairs(connectedObjects) do
+               local entNode = pipes.validEntity(pipeName, objectId, object.toAbsolutePosition(tile.pos), tile.dir)
+               if objectId ~= entity.id() and entNode and table.contains(validEntities, objectId) == false then
+                  validEntities[#validEntities+1] = {id = objectId, nodeId = entNode, path = table.copy(tile.path)}
+               end
+            end
+         end
+      end
+      table.remove(tilesToVisit, 1)
+   end
+
+   table.sort(validEntities, function(a,b) return #a.path < #b.path end)
+   return validEntities
 end
